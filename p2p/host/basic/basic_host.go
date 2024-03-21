@@ -726,7 +726,7 @@ func (h *BasicHost) Connect(ctx context.Context, pi peer.AddrInfo) error {
 	canUseTransient, _ := network.GetUseTransient(ctx)
 	if !forceDirect {
 		connectedness := h.Network().Connectedness(pi.ID)
-		if connectedness == network.Connected || (canUseTransient && connectedness == network.Transient) {
+		if connectedness == network.Connected || (canUseTransient && connectedness == network.Limited) {
 			return nil
 		}
 	}

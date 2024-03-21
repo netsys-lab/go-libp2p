@@ -747,7 +747,7 @@ func (ids *idService) consumeMessage(mes *pb.Identify, c network.Conn, isPush bo
 	ids.addrMu.Lock()
 	ttl := peerstore.RecentlyConnectedAddrTTL
 	switch ids.Host.Network().Connectedness(p) {
-	case network.Transient, network.Connected:
+	case network.Limited, network.Connected:
 		ttl = peerstore.ConnectedAddrTTL
 	}
 
@@ -977,7 +977,7 @@ func (nn *netNotifiee) Disconnected(_ network.Network, c network.Conn) {
 	ids.connsMu.Unlock()
 
 	switch ids.Host.Network().Connectedness(c.RemotePeer()) {
-	case network.Connected, network.Transient:
+	case network.Connected, network.Limited:
 		return
 	}
 	// Last disconnect.

@@ -103,7 +103,7 @@ func (m *PeerstoreManager) background(ctx context.Context, sub event.Subscriptio
 			ev := e.(event.EvtPeerConnectednessChanged)
 			p := ev.Peer
 			switch ev.Connectedness {
-			case network.Connected, network.Transient:
+			case network.Connected, network.Limited:
 				// If we reconnect to the peer before we've cleared the information,
 				// keep it. This is an optimization to keep the disconnected map
 				// small. We still need to check that a peer is actually
