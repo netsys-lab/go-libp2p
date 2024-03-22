@@ -773,19 +773,27 @@ func (s *Swarm) removeConn(c *Conn) {
 	cs := s.conns.m[p]
 
 	oldState := s.connectednessUnlocked(p)
+
 	if len(cs) == 1 {
 		delete(s.conns.m, p)
-	} else {
-		for i, ci := range cs {
-			if ci == c {
-				// NOTE: We're intentionally preserving order.
-				// This way, connections to a peer are always
-				// sorted oldest to newest.
-				copy(cs[i:], cs[i+1:])
-				cs[len(cs)-1] = nil
-				s.conns.m[p] = cs[:len(cs)-1]
-				break
-			}
+		s.conns.Unlock()
+
+		s.emitter.Emit(event.EvtPeerConnectednessChanged{
+			Peer:          p,
+			Connectedness: network.NotConnected,
+		})
+		return
+	}
+
+	for i, ci := range cs {
+		if ci == c {
+			// NOTE: We're intentionally preserving order.
+			// This way, connections to a peer are always
+			// sorted oldest to newest.
+			copy(cs[i:], cs[i+1:])
+			cs[len(cs)-1] = nil
+			s.conns.m[p] = cs[:len(cs)-1]
+			break
 		}
 	}
 	newState := s.connectednessUnlocked(p)
