@@ -659,10 +659,6 @@ func (s *Swarm) Connectedness(p peer.ID) network.Connectedness {
 func (s *Swarm) connectednessUnlocked(p peer.ID) network.Connectedness {
 	var haveTransient bool
 	for _, c := range s.conns.m[p] {
-		if c.conn.IsClosed() {
-			// We *will* garbage collect this soon anyways.
-			continue
-		}
 		if c.Stat().Transient {
 			haveTransient = true
 		} else {
@@ -776,28 +772,20 @@ func (s *Swarm) removeConn(c *Conn) {
 
 	if len(cs) == 1 {
 		delete(s.conns.m, p)
-		s.conns.Unlock()
-
-		// Emit event after releasing `s.conns` lock so that a consumer can still
-		// use swarm methods that need the `s.conns` lock.
-		s.emitter.Emit(event.EvtPeerConnectednessChanged{
-			Peer:          p,
-			Connectedness: network.NotConnected,
-		})
-		return
-	}
-
-	for i, ci := range cs {
-		if ci == c {
-			// NOTE: We're intentionally preserving order.
-			// This way, connections to a peer are always
-			// sorted oldest to newest.
-			copy(cs[i:], cs[i+1:])
-			cs[len(cs)-1] = nil
-			s.conns.m[p] = cs[:len(cs)-1]
-			break
+	} else {
+		for i, ci := range cs {
+			if ci == c {
+				// NOTE: We're intentionally preserving order.
+				// This way, connections to a peer are always
+				// sorted oldest to newest.
+				copy(cs[i:], cs[i+1:])
+				cs[len(cs)-1] = nil
+				s.conns.m[p] = cs[:len(cs)-1]
+				break
+			}
 		}
 	}
+
 	newState := s.connectednessUnlocked(p)
 
 	s.conns.Unlock()
