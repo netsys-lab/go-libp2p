@@ -388,11 +388,7 @@ func (s *Swarm) addConn(tc transport.CapableConn, dir network.Direction) (*Conn,
 
 	c.streams.m = make(map[*Stream]struct{})
 	s.conns.m[p] = append(s.conns.m[p], c)
-
-	newState := network.Limited
-	if !isTransient {
-		newState = network.Connected
-	}
+	newState := s.connectednessUnlocked(p)
 
 	// Add two swarm refs:
 	// * One will be decremented after the close notifications fire in Conn.doClose
@@ -776,31 +772,31 @@ func (s *Swarm) removeConn(c *Conn) {
 
 	cs := s.conns.m[p]
 
+	oldState := s.connectednessUnlocked(p)
 	if len(cs) == 1 {
 		delete(s.conns.m, p)
-		s.conns.Unlock()
+	} else {
+		for i, ci := range cs {
+			if ci == c {
+				// NOTE: We're intentionally preserving order.
+				// This way, connections to a peer are always
+				// sorted oldest to newest.
+				copy(cs[i:], cs[i+1:])
+				cs[len(cs)-1] = nil
+				s.conns.m[p] = cs[:len(cs)-1]
+				break
+			}
+		}
+	}
+	newState := s.connectednessUnlocked(p)
 
-		// Emit event after releasing `s.conns` lock so that a consumer can still
-		// use swarm methods that need the `s.conns` lock.
+	s.conns.Unlock()
+
+	if oldState != newState {
 		s.emitter.Emit(event.EvtPeerConnectednessChanged{
 			Peer:          p,
-			Connectedness: network.NotConnected,
+			Connectedness: newState,
 		})
-		return
-	}
-
-	defer s.conns.Unlock()
-
-	for i, ci := range cs {
-		if ci == c {
-			// NOTE: We're intentionally preserving order.
-			// This way, connections to a peer are always
-			// sorted oldest to newest.
-			copy(cs[i:], cs[i+1:])
-			cs[len(cs)-1] = nil
-			s.conns.m[p] = cs[:len(cs)-1]
-			break
-		}
 	}
 }
 
