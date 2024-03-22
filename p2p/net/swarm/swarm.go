@@ -778,6 +778,8 @@ func (s *Swarm) removeConn(c *Conn) {
 		delete(s.conns.m, p)
 		s.conns.Unlock()
 
+		// Emit event after releasing `s.conns` lock so that a consumer can still
+		// use swarm methods that need the `s.conns` lock.
 		s.emitter.Emit(event.EvtPeerConnectednessChanged{
 			Peer:          p,
 			Connectedness: network.NotConnected,
