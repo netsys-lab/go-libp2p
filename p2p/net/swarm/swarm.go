@@ -384,11 +384,11 @@ func (s *Swarm) addConn(tc transport.CapableConn, dir network.Direction) (*Conn,
 		return nil, ErrSwarmClosed
 	}
 
-	oldState := s.connectednessUnlocked(p)
+	oldState := s.connectednessUnlocked(p, true)
 
 	c.streams.m = make(map[*Stream]struct{})
 	s.conns.m[p] = append(s.conns.m[p], c)
-	newState := s.connectednessUnlocked(p)
+	newState := s.connectednessUnlocked(p, true)
 
 	// Add two swarm refs:
 	// * One will be decremented after the close notifications fire in Conn.doClose
@@ -653,12 +653,20 @@ func (s *Swarm) Connectedness(p peer.ID) network.Connectedness {
 	s.conns.RLock()
 	defer s.conns.RUnlock()
 
-	return s.connectednessUnlocked(p)
+	return s.connectednessUnlocked(p, false)
 }
 
-func (s *Swarm) connectednessUnlocked(p peer.ID) network.Connectedness {
+// connectednessUnlocked returns the connectedness of a peer. For sending peer connectedness
+// changed notifications consider closed connections. When remote closes a connection
+// the underlying transport connection is closed first, so tracking changes to the connectedness
+// state requires considering this recently closed connections impact on Connectedness.
+func (s *Swarm) connectednessUnlocked(p peer.ID, considerClosed bool) network.Connectedness {
 	var haveTransient bool
 	for _, c := range s.conns.m[p] {
+		if !considerClosed && c.IsClosed() {
+			// These will be garbage collected soon
+			continue
+		}
 		if c.Stat().Transient {
 			haveTransient = true
 		} else {
@@ -768,7 +776,7 @@ func (s *Swarm) removeConn(c *Conn) {
 
 	cs := s.conns.m[p]
 
-	oldState := s.connectednessUnlocked(p)
+	oldState := s.connectednessUnlocked(p, true)
 
 	if len(cs) == 1 {
 		delete(s.conns.m, p)
@@ -786,7 +794,7 @@ func (s *Swarm) removeConn(c *Conn) {
 		}
 	}
 
-	newState := s.connectednessUnlocked(p)
+	newState := s.connectednessUnlocked(p, true)
 
 	s.conns.Unlock()
 
