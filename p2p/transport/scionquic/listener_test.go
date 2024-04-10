@@ -1,4 +1,4 @@
-package libp2pquic
+package libp2pscionquic
 
 import (
 	"crypto/rand"
@@ -13,7 +13,7 @@ import (
 	ic "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
 	tpt "github.com/libp2p/go-libp2p/core/transport"
-	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
+	"github.com/libp2p/go-libp2p/p2p/transport/scionquicreuse"
 
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
@@ -105,7 +105,7 @@ func TestCorrectNumberOfVirtualListeners(t *testing.T) {
 	localAddrV1 := ma.StringCast("/ip4/127.0.0.1/udp/0/quic-v1")
 	ln, err := tr.Listen(localAddrV1)
 	require.NoError(t, err)
-	udpAddr, _, err := quicreuse.FromQuicMultiaddr(localAddrV1)
+	udpAddr, _, err := scionquicreuse.FromQuicMultiaddr(localAddrV1)
 	require.NoError(t, err)
 
 	require.NoError(t, err)

@@ -10,8 +10,8 @@ import (
 
 	ic "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	libp2pquic "github.com/libp2p/go-libp2p/p2p/transport/quic"
-	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
+	libp2pscionquic "github.com/libp2p/go-libp2p/p2p/transport/scionquic"
+	"github.com/libp2p/go-libp2p/p2p/transport/scionquicreuse"
 
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go"
@@ -41,11 +41,11 @@ func run(raddr string, p string) error {
 		return err
 	}
 
-	reuse, err := quicreuse.NewConnManager(quic.StatelessResetKey{}, quic.TokenGeneratorKey{})
+	reuse, err := scionquicreuse.NewConnManager(quic.StatelessResetKey{}, quic.TokenGeneratorKey{})
 	if err != nil {
 		return err
 	}
-	t, err := libp2pquic.NewTransport(priv, reuse, nil, nil, nil)
+	t, err := libp2pscionquic.NewTransport(priv, reuse, nil, nil, nil)
 	if err != nil {
 		return err
 	}

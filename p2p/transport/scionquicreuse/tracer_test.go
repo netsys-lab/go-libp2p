@@ -1,4 +1,4 @@
-package quicreuse
+package scionquicreuse
 
 import (
 	"bytes"

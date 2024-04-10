@@ -1,4 +1,4 @@
-package libp2pquic
+package libp2pscionquic
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ import (
 	mocknetwork "github.com/libp2p/go-libp2p/core/network/mocks"
 	"github.com/libp2p/go-libp2p/core/peer"
 	tpt "github.com/libp2p/go-libp2p/core/transport"
-	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
+	"github.com/libp2p/go-libp2p/p2p/transport/scionquicreuse"
 
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go"
@@ -27,16 +27,16 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-//go:generate sh -c "go run go.uber.org/mock/mockgen -package libp2pquic -destination mock_connection_gater_test.go github.com/libp2p/go-libp2p/core/connmgr ConnectionGater && go run golang.org/x/tools/cmd/goimports -w mock_connection_gater_test.go"
+//go:generate sh -c "go run go.uber.org/mock/mockgen -package libp2pscionquic -destination mock_connection_gater_test.go github.com/libp2p/go-libp2p/core/connmgr ConnectionGater && go run golang.org/x/tools/cmd/goimports -w mock_connection_gater_test.go"
 
 type connTestCase struct {
 	Name    string
-	Options []quicreuse.Option
+	Options []scionquicreuse.Option
 }
 
 var connTestCases = []*connTestCase{
-	{"reuseport_on", []quicreuse.Option{}},
-	{"reuseport_off", []quicreuse.Option{quicreuse.DisableReuseport()}},
+	{"reuseport_on", []scionquicreuse.Option{}},
+	{"reuseport_off", []scionquicreuse.Option{scionquicreuse.DisableReuseport()}},
 }
 
 func createPeer(t *testing.T) (peer.ID, ic.PrivKey) {
@@ -67,9 +67,9 @@ func runServer(t *testing.T, tr tpt.Transport, addr string) tpt.Listener {
 	return ln
 }
 
-func newConnManager(t *testing.T, opts ...quicreuse.Option) *quicreuse.ConnManager {
+func newConnManager(t *testing.T, opts ...scionquicreuse.Option) *scionquicreuse.ConnManager {
 	t.Helper()
-	cm, err := quicreuse.NewConnManager(quic.StatelessResetKey{}, quic.TokenGeneratorKey{}, opts...)
+	cm, err := scionquicreuse.NewConnManager(quic.StatelessResetKey{}, quic.TokenGeneratorKey{}, opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { cm.Close() })
 	return cm
@@ -544,7 +544,7 @@ func testStatelessReset(t *testing.T, tc *connTestCase) {
 	clientTransport, err := NewTransport(clientKey, newConnManager(t, tc.Options...), nil, nil, nil)
 	require.NoError(t, err)
 	defer clientTransport.(io.Closer).Close()
-	proxyAddr, err := quicreuse.ToQuicMultiaddr(proxy.LocalAddr(), quic.Version1)
+	proxyAddr, err := scionquicreuse.ToQuicMultiaddr(proxy.LocalAddr(), quic.Version1)
 	require.NoError(t, err)
 	conn, err := clientTransport.Dial(context.Background(), proxyAddr, serverID)
 	require.NoError(t, err)

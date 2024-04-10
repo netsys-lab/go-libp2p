@@ -1,4 +1,4 @@
-package libp2pquic
+package libp2pscionquic
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/pnet"
 	tpt "github.com/libp2p/go-libp2p/core/transport"
 	p2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
-	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
+	"github.com/libp2p/go-libp2p/p2p/transport/scionquicreuse"
 
 	logging "github.com/ipfs/go-log/v2"
 	ma "github.com/multiformats/go-multiaddr"
@@ -39,7 +39,7 @@ type transport struct {
 	privKey     ic.PrivKey
 	localPeer   peer.ID
 	identity    *p2ptls.Identity
-	connManager *quicreuse.ConnManager
+	connManager *scionquicreuse.ConnManager
 	gater       connmgr.ConnectionGater
 	rcmgr       network.ResourceManager
 
@@ -70,7 +70,7 @@ type activeHolePunch struct {
 }
 
 // NewTransport creates a new QUIC transport
-func NewTransport(key ic.PrivKey, connManager *quicreuse.ConnManager, psk pnet.PSK, gater connmgr.ConnectionGater, rcmgr network.ResourceManager) (tpt.Transport, error) {
+func NewTransport(key ic.PrivKey, connManager *scionquicreuse.ConnManager, psk pnet.PSK, gater connmgr.ConnectionGater, rcmgr network.ResourceManager) (tpt.Transport, error) {
 	if len(psk) > 0 {
 		log.Error("QUIC doesn't support private networks yet.")
 		return nil, errors.New("QUIC doesn't support private networks yet")
@@ -146,7 +146,7 @@ func (t *transport) dialWithScope(ctx context.Context, raddr ma.Multiaddr, p pee
 		return nil, errors.New("p2p/transport/quic BUG: expected remote pub key to be set")
 	}
 
-	localMultiaddr, err := quicreuse.ToQuicMultiaddr(pconn.LocalAddr(), pconn.ConnectionState().Version)
+	localMultiaddr, err := scionquicreuse.ToQuicMultiaddr(pconn.LocalAddr(), pconn.ConnectionState().Version)
 	if err != nil {
 		pconn.CloseWithError(1, "")
 		return nil, err
@@ -288,7 +288,7 @@ func (t *transport) Listen(addr ma.Multiaddr) (tpt.Listener, error) {
 		return conf, nil
 	}
 	tlsConf.NextProtos = []string{"libp2p"}
-	udpAddr, version, err := quicreuse.FromQuicMultiaddr(addr)
+	udpAddr, version, err := scionquicreuse.FromQuicMultiaddr(addr)
 	if err != nil {
 		return nil, err
 	}

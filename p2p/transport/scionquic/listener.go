@@ -1,4 +1,4 @@
-package libp2pquic
+package libp2pscionquic
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	tpt "github.com/libp2p/go-libp2p/core/transport"
 	p2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
-	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
+	"github.com/libp2p/go-libp2p/p2p/transport/scionquicreuse"
 
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go"
@@ -18,7 +18,7 @@ import (
 
 // A listener listens for QUIC connections.
 type listener struct {
-	reuseListener   quicreuse.Listener
+	reuseListener   scionquicreuse.Listener
 	transport       *transport
 	rcmgr           network.ResourceManager
 	privKey         ic.PrivKey
@@ -26,7 +26,7 @@ type listener struct {
 	localMultiaddrs map[quic.VersionNumber]ma.Multiaddr
 }
 
-func newListener(ln quicreuse.Listener, t *transport, localPeer peer.ID, key ic.PrivKey, rcmgr network.ResourceManager) (listener, error) {
+func newListener(ln scionquicreuse.Listener, t *transport, localPeer peer.ID, key ic.PrivKey, rcmgr network.ResourceManager) (listener, error) {
 	localMultiaddrs := make(map[quic.VersionNumber]ma.Multiaddr)
 	for _, addr := range ln.Multiaddrs() {
 		if _, err := addr.ValueForProtocol(ma.P_QUIC_V1); err == nil {
@@ -80,7 +80,7 @@ func (l *listener) Accept() (tpt.CapableConn, error) {
 }
 
 func (l *listener) setupConn(qconn quic.Connection) (*conn, error) {
-	remoteMultiaddr, err := quicreuse.ToQuicMultiaddr(qconn.RemoteAddr(), qconn.ConnectionState().Version)
+	remoteMultiaddr, err := scionquicreuse.ToQuicMultiaddr(qconn.RemoteAddr(), qconn.ConnectionState().Version)
 	if err != nil {
 		return nil, err
 	}

@@ -1,10 +1,10 @@
-package libp2pquic
+package libp2pscionquic
 
 import (
 	"sync"
 
 	tpt "github.com/libp2p/go-libp2p/core/transport"
-	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
+	"github.com/libp2p/go-libp2p/p2p/transport/scionquicreuse"
 
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go"
@@ -116,7 +116,7 @@ func (r *acceptLoopRunner) innerAccept(l *listener, expectedVersion quic.Version
 		return nil, err
 	}
 
-	_, version, err := quicreuse.FromQuicMultiaddr(conn.RemoteMultiaddr())
+	_, version, err := scionquicreuse.FromQuicMultiaddr(conn.RemoteMultiaddr())
 	if err != nil {
 		r.sendErrAndClose(err)
 		return nil, err
