@@ -8,9 +8,11 @@ import (
 	"sync"
 
 	ma "github.com/multiformats/go-multiaddr"
-	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/quic-go/quic-go"
 	quiclogging "github.com/quic-go/quic-go/logging"
+	saddr "github.com/scionproto/scion/pkg/addr"
+	"github.com/scionproto/scion/pkg/daemon"
+	"github.com/scionproto/scion/pkg/snet"
 )
 
 type ConnManager struct {
@@ -27,6 +29,9 @@ type ConnManager struct {
 
 	srk      quic.StatelessResetKey
 	tokenKey quic.TokenGeneratorKey
+
+	scionContext *scionContext
+	scionNetwork *snet.SCIONNetwork
 }
 
 type quicListenerEntry struct {
@@ -47,6 +52,21 @@ func NewConnManager(statelessResetKey quic.StatelessResetKey, tokenKey quic.Toke
 		}
 	}
 
+	// TODO(Leon): Accept options like dispatcher socket
+	scionContext, err := initScionContext()
+	if err != nil {
+		return nil, err
+	}
+	cm.scionContext = scionContext
+
+	cm.scionNetwork = &snet.SCIONNetwork{
+		Dispatcher: &snet.DefaultPacketDispatcherService{
+			Dispatcher:  scionContext.dispatcher,
+			SCMPHandler: &snet.DefaultSCMPHandler{},
+		},
+		LocalIA: scionContext.localIA,
+	}
+
 	quicConf := quicConfig.Clone()
 
 	quicConf.Tracer = func(ctx context.Context, p quiclogging.Perspective, ci quic.ConnectionID) *quiclogging.ConnectionTracer {
@@ -61,8 +81,8 @@ func NewConnManager(statelessResetKey quic.StatelessResetKey, tokenKey quic.Toke
 	cm.clientConfig = quicConf
 	cm.serverConfig = serverConfig
 	if cm.enableReuseport {
-		cm.reuseUDP4 = newReuse(&statelessResetKey, &tokenKey)
-		cm.reuseUDP6 = newReuse(&statelessResetKey, &tokenKey)
+		cm.reuseUDP4 = newReuse(&statelessResetKey, &tokenKey, cm.scionNetwork)
+		cm.reuseUDP6 = newReuse(&statelessResetKey, &tokenKey, cm.scionNetwork)
 	}
 	return cm, nil
 }
@@ -79,11 +99,11 @@ func (c *ConnManager) getReuse(network string) (*reuse, error) {
 }
 
 func (c *ConnManager) ListenQUIC(addr ma.Multiaddr, tlsConf *tls.Config, allowWindowIncrease func(conn quic.Connection, delta uint64) bool) (Listener, error) {
-	netw, host, err := manet.DialArgs(addr)
+	netw, host, err := DialArgs(addr)
 	if err != nil {
 		return nil, err
 	}
-	laddr, err := net.ResolveUDPAddr(netw, host)
+	laddr, err := snet.ParseUDPAddr(host)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +151,7 @@ func (c *ConnManager) onListenerClosed(key string) {
 	}
 }
 
-func (c *ConnManager) transportForListen(network string, laddr *net.UDPAddr) (refCountedQuicTransport, error) {
+func (c *ConnManager) transportForListen(network string, laddr *snet.UDPAddr) (refCountedQuicTransport, error) {
 	if c.enableReuseport {
 		reuse, err := c.getReuse(network)
 		if err != nil {
@@ -140,7 +160,7 @@ func (c *ConnManager) transportForListen(network string, laddr *net.UDPAddr) (re
 		return reuse.TransportForListen(network, laddr)
 	}
 
-	conn, err := net.ListenUDP(network, laddr)
+	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr.Host, saddr.SvcNone)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +179,7 @@ func (c *ConnManager) DialQUIC(ctx context.Context, raddr ma.Multiaddr, tlsConf 
 	if err != nil {
 		return nil, err
 	}
-	netw, _, err := manet.DialArgs(raddr)
+	netw, _, err := DialArgs(raddr)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +198,15 @@ func (c *ConnManager) DialQUIC(ctx context.Context, raddr ma.Multiaddr, tlsConf 
 	if err != nil {
 		return nil, err
 	}
+
+	flags := daemon.PathReqFlags{Refresh: false, Hidden: false}
+	paths, err := c.scionContext.sciond.Paths(context.Background(), naddr.IA, 0, flags)
+	if err != nil {
+		return nil, err
+	}
+	// TODO(Leon): Implement sensible path selection
+	naddr.Path = paths[0].Dataplane()
+
 	conn, err := tr.Dial(ctx, naddr, tlsConf, quicConf)
 	if err != nil {
 		tr.DecreaseCount()
@@ -186,7 +215,7 @@ func (c *ConnManager) DialQUIC(ctx context.Context, raddr ma.Multiaddr, tlsConf 
 	return conn, nil
 }
 
-func (c *ConnManager) TransportForDial(network string, raddr *net.UDPAddr) (refCountedQuicTransport, error) {
+func (c *ConnManager) TransportForDial(network string, raddr *snet.UDPAddr) (refCountedQuicTransport, error) {
 	if c.enableReuseport {
 		reuse, err := c.getReuse(network)
 		if err != nil {
@@ -198,11 +227,11 @@ func (c *ConnManager) TransportForDial(network string, raddr *net.UDPAddr) (refC
 	var laddr *net.UDPAddr
 	switch network {
 	case "udp4":
-		laddr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
+		laddr = &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
 	case "udp6":
-		laddr = &net.UDPAddr{IP: net.IPv6zero, Port: 0}
+		laddr = &net.UDPAddr{IP: net.IPv6loopback, Port: 0}
 	}
-	conn, err := net.ListenUDP(network, laddr)
+	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr, saddr.SvcNone)
 	if err != nil {
 		return nil, err
 	}

@@ -18,17 +18,17 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Printf("Usage: %s <port>", os.Args[0])
+	if len(os.Args) != 3 {
+		fmt.Printf("Usage: %s <ia> <port>", os.Args[0])
 		return
 	}
-	if err := run(os.Args[1]); err != nil {
+	if err := run(os.Args[1], os.Args[2]); err != nil {
 		log.Fatalf(err.Error())
 	}
 }
 
-func run(port string) error {
-	addr, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/0.0.0.0/udp/%s/quic", port))
+func run(ia, port string) error {
+	addr, err := ma.NewMultiaddr(fmt.Sprintf("/scion/%s/ip4/127.0.0.1/udp/%s/quic-v1", ia, port))
 	if err != nil {
 		return err
 	}

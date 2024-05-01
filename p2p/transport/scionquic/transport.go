@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"net"
 	"sync"
 	"time"
 
@@ -18,11 +17,11 @@ import (
 	tpt "github.com/libp2p/go-libp2p/core/transport"
 	p2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	"github.com/libp2p/go-libp2p/p2p/transport/scionquicreuse"
+	"github.com/scionproto/scion/pkg/snet"
 
 	logging "github.com/ipfs/go-log/v2"
 	ma "github.com/multiformats/go-multiaddr"
 	mafmt "github.com/multiformats/go-multiaddr-fmt"
-	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/quic-go/quic-go"
 )
 
@@ -181,12 +180,13 @@ func (t *transport) removeConn(conn quic.Connection) {
 	t.connMx.Unlock()
 }
 
+// TODO(Leon): Do we even need hole punching?
 func (t *transport) holePunch(ctx context.Context, raddr ma.Multiaddr, p peer.ID) (tpt.CapableConn, error) {
-	network, saddr, err := manet.DialArgs(raddr)
+	network, saddr, err := scionquicreuse.DialArgs(raddr)
 	if err != nil {
 		return nil, err
 	}
-	addr, err := net.ResolveUDPAddr(network, saddr)
+	addr, err := snet.ParseUDPAddr(saddr)
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +268,8 @@ loop:
 	}
 }
 
-// Don't use mafmt.QUIC as we don't want to dial DNS addresses. Just /ip{4,6}/udp/quic-v1
-var dialMatcher = mafmt.And(mafmt.IP, mafmt.Base(ma.P_UDP), mafmt.Base(ma.P_QUIC_V1))
+// Don't use mafmt.QUIC as we only want to dial SCION addresses. Just /scion/ip{4,6}/udp/quic-v1
+var dialMatcher = mafmt.And(mafmt.Base(ma.P_SCION), mafmt.IP, mafmt.Base(ma.P_UDP), mafmt.Base(ma.P_QUIC_V1))
 
 // CanDial determines if we can dial to an address
 func (t *transport) CanDial(addr ma.Multiaddr) bool {
