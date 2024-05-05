@@ -16,10 +16,7 @@ import (
 )
 
 type ConnManager struct {
-	reuseUDP4       *reuse
-	reuseUDP6       *reuse
-	enableReuseport bool
-	enableMetrics   bool
+	enableMetrics bool
 
 	serverConfig *quic.Config
 	clientConfig *quic.Config
@@ -41,10 +38,9 @@ type quicListenerEntry struct {
 
 func NewConnManager(statelessResetKey quic.StatelessResetKey, tokenKey quic.TokenGeneratorKey, opts ...Option) (*ConnManager, error) {
 	cm := &ConnManager{
-		enableReuseport: true,
-		quicListeners:   make(map[string]quicListenerEntry),
-		srk:             statelessResetKey,
-		tokenKey:        tokenKey,
+		quicListeners: make(map[string]quicListenerEntry),
+		srk:           statelessResetKey,
+		tokenKey:      tokenKey,
 	}
 	for _, o := range opts {
 		if err := o(cm); err != nil {
@@ -80,22 +76,7 @@ func NewConnManager(statelessResetKey quic.StatelessResetKey, tokenKey quic.Toke
 
 	cm.clientConfig = quicConf
 	cm.serverConfig = serverConfig
-	if cm.enableReuseport {
-		cm.reuseUDP4 = newReuse(&statelessResetKey, &tokenKey, cm.scionNetwork)
-		cm.reuseUDP6 = newReuse(&statelessResetKey, &tokenKey, cm.scionNetwork)
-	}
 	return cm, nil
-}
-
-func (c *ConnManager) getReuse(network string) (*reuse, error) {
-	switch network {
-	case "udp4":
-		return c.reuseUDP4, nil
-	case "udp6":
-		return c.reuseUDP6, nil
-	default:
-		return nil, errors.New("invalid network: must be either udp4 or udp6")
-	}
 }
 
 func (c *ConnManager) ListenQUIC(addr ma.Multiaddr, tlsConf *tls.Config, allowWindowIncrease func(conn quic.Connection, delta uint64) bool) (Listener, error) {
@@ -152,14 +133,6 @@ func (c *ConnManager) onListenerClosed(key string) {
 }
 
 func (c *ConnManager) transportForListen(network string, laddr *snet.UDPAddr) (refCountedQuicTransport, error) {
-	if c.enableReuseport {
-		reuse, err := c.getReuse(network)
-		if err != nil {
-			return nil, err
-		}
-		return reuse.TransportForListen(network, laddr)
-	}
-
 	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr.Host, saddr.SvcNone)
 	if err != nil {
 		return nil, err
@@ -216,14 +189,6 @@ func (c *ConnManager) DialQUIC(ctx context.Context, raddr ma.Multiaddr, tlsConf 
 }
 
 func (c *ConnManager) TransportForDial(network string, raddr *snet.UDPAddr) (refCountedQuicTransport, error) {
-	if c.enableReuseport {
-		reuse, err := c.getReuse(network)
-		if err != nil {
-			return nil, err
-		}
-		return reuse.TransportForDial(network, raddr)
-	}
-
 	var laddr *net.UDPAddr
 	switch network {
 	case "udp4":
@@ -243,11 +208,5 @@ func (c *ConnManager) Protocols() []int {
 }
 
 func (c *ConnManager) Close() error {
-	if !c.enableReuseport {
-		return nil
-	}
-	if err := c.reuseUDP6.Close(); err != nil {
-		return err
-	}
-	return c.reuseUDP4.Close()
+	return nil
 }
