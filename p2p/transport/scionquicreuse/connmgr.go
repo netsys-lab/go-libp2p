@@ -10,7 +10,6 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go"
 	quiclogging "github.com/quic-go/quic-go/logging"
-	saddr "github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/daemon"
 	"github.com/scionproto/scion/pkg/snet"
 )
@@ -56,11 +55,8 @@ func NewConnManager(statelessResetKey quic.StatelessResetKey, tokenKey quic.Toke
 	cm.scionContext = scionContext
 
 	cm.scionNetwork = &snet.SCIONNetwork{
-		Dispatcher: &snet.DefaultPacketDispatcherService{
-			Dispatcher:  scionContext.dispatcher,
-			SCMPHandler: &snet.DefaultSCMPHandler{},
-		},
-		LocalIA: scionContext.localIA,
+		Topology:    scionContext.sciond,
+		SCMPHandler: snet.DefaultSCMPHandler{},
 	}
 
 	quicConf := quicConfig.Clone()
@@ -133,7 +129,7 @@ func (c *ConnManager) onListenerClosed(key string) {
 }
 
 func (c *ConnManager) transportForListen(network string, laddr *snet.UDPAddr) (refCountedQuicTransport, error) {
-	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr.Host, saddr.SvcNone)
+	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +192,7 @@ func (c *ConnManager) TransportForDial(network string, raddr *snet.UDPAddr) (ref
 	case "udp6":
 		laddr = &net.UDPAddr{IP: net.IPv6loopback, Port: 0}
 	}
-	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr, saddr.SvcNone)
+	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr)
 	if err != nil {
 		return nil, err
 	}

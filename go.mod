@@ -56,7 +56,7 @@ require (
 	github.com/quic-go/quic-go v0.44.0
 	github.com/quic-go/webtransport-go v0.8.0
 	github.com/raulk/go-watchdog v1.3.0
-	github.com/scionproto/scion v0.11.0
+	github.com/scionproto/scion v0.11.1-0.20240711160934-60b4932fc3e4
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/fx v1.22.1
 	go.uber.org/goleak v1.3.0
