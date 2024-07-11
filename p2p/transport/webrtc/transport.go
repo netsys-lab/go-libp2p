@@ -26,6 +26,7 @@ import (
 	"time"
 
 	mrand "golang.org/x/exp/rand"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/libp2p/go-libp2p/core/connmgr"
 	ic "github.com/libp2p/go-libp2p/core/crypto"
@@ -35,21 +36,16 @@ import (
 	"github.com/libp2p/go-libp2p/core/sec"
 	tpt "github.com/libp2p/go-libp2p/core/transport"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
+	"github.com/libp2p/go-libp2p/p2p/transport/webrtc/pb"
+	"github.com/libp2p/go-msgio"
 
-	logging "github.com/ipfs/go-log/v2"
 	ma "github.com/multiformats/go-multiaddr"
-	mafmt "github.com/multiformats/go-multiaddr-fmt"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/multiformats/go-multihash"
 
 	"github.com/pion/datachannel"
-	pionlogger "github.com/pion/logging"
 	"github.com/pion/webrtc/v3"
 )
-
-var log = logging.Logger("webrtc-transport")
-
-var dialMatcher = mafmt.And(mafmt.UDP, mafmt.Base(ma.P_WEBRTC_DIRECT), mafmt.Base(ma.P_CERTHASH))
 
 var webrtcComponent *ma.Component
 
@@ -80,6 +76,8 @@ const (
 	DefaultDisconnectedTimeout = 20 * time.Second
 	DefaultFailedTimeout       = 30 * time.Second
 	DefaultKeepaliveTimeout    = 15 * time.Second
+
+	sctpReceiveBufferSize = 100_000
 )
 
 type WebRTCTransport struct {
@@ -111,6 +109,9 @@ func New(privKey ic.PrivKey, psk pnet.PSK, gater connmgr.ConnectionGater, rcmgr 
 	if psk != nil {
 		log.Error("WebRTC doesn't support private networks yet.")
 		return nil, fmt.Errorf("WebRTC doesn't support private networks yet")
+	}
+	if rcmgr == nil {
+		rcmgr = &network.NullResourceManager{}
 	}
 	localPeerID, err := peer.IDFromPrivateKey(privKey)
 	if err != nil {
@@ -175,7 +176,8 @@ func (t *WebRTCTransport) Proxy() bool {
 }
 
 func (t *WebRTCTransport) CanDial(addr ma.Multiaddr) bool {
-	return dialMatcher.Matches(addr)
+	isValid, n := IsWebRTCDirectMultiaddr(addr)
+	return isValid && n > 0
 }
 
 // Listen returns a listener for addr.
@@ -259,11 +261,11 @@ func (t *WebRTCTransport) Dial(ctx context.Context, remoteMultiaddr ma.Multiaddr
 }
 
 func (t *WebRTCTransport) dial(ctx context.Context, scope network.ConnManagementScope, remoteMultiaddr ma.Multiaddr, p peer.ID) (tConn tpt.CapableConn, err error) {
-	var pc *webrtc.PeerConnection
+	var w webRTCConnection
 	defer func() {
 		if err != nil {
-			if pc != nil {
-				_ = pc.Close()
+			if w.PeerConnection != nil {
+				_ = w.PeerConnection.Close()
 			}
 			if tConn != nil {
 				_ = tConn.Close()
@@ -297,12 +299,9 @@ func (t *WebRTCTransport) dial(ctx context.Context, scope network.ConnManagement
 	// the password using the STUN message.
 	ufrag := genUfrag()
 
-	settingEngine := webrtc.SettingEngine{}
-	// suppress pion logs
-	loggerFactory := pionlogger.NewDefaultLoggerFactory()
-	loggerFactory.DefaultLogLevel = pionlogger.LogLevelDisabled
-	settingEngine.LoggerFactory = loggerFactory
-
+	settingEngine := webrtc.SettingEngine{
+		LoggerFactory: pionLoggerFactory,
+	}
 	settingEngine.SetICECredentials(ufrag, ufrag)
 	settingEngine.DetachDataChannels()
 	// use the first best address candidate
@@ -318,33 +317,25 @@ func (t *WebRTCTransport) dial(ctx context.Context, scope network.ConnManagement
 	// If you run pion on a system with only the loopback interface UP,
 	// it will not connect to anything.
 	settingEngine.SetIncludeLoopbackCandidate(true)
-
-	api := webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
-
-	pc, err = api.NewPeerConnection(t.webrtcConfig)
-	if err != nil {
-		return nil, fmt.Errorf("instantiate peerconnection: %w", err)
+	settingEngine.SetSCTPMaxReceiveBufferSize(sctpReceiveBufferSize)
+	if err := scope.ReserveMemory(sctpReceiveBufferSize, network.ReservationPriorityMedium); err != nil {
+		return nil, err
 	}
 
-	errC := addOnConnectionStateChangeCallback(pc)
-	// We need to set negotiated = true for this channel on both
-	// the client and server to avoid DCEP errors.
-	negotiated, id := handshakeChannelNegotiated, handshakeChannelID
-	rawHandshakeChannel, err := pc.CreateDataChannel("", &webrtc.DataChannelInit{
-		Negotiated: &negotiated,
-		ID:         &id,
-	})
+	w, err = newWebRTCConnection(settingEngine, t.webrtcConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create datachannel: %w", err)
+		return nil, fmt.Errorf("instantiating peer connection failed: %w", err)
 	}
+
+	errC := addOnConnectionStateChangeCallback(w.PeerConnection)
 
 	// do offer-answer exchange
-	offer, err := pc.CreateOffer(nil)
+	offer, err := w.PeerConnection.CreateOffer(nil)
 	if err != nil {
 		return nil, fmt.Errorf("create offer: %w", err)
 	}
 
-	err = pc.SetLocalDescription(offer)
+	err = w.PeerConnection.SetLocalDescription(offer)
 	if err != nil {
 		return nil, fmt.Errorf("set local description: %w", err)
 	}
@@ -355,7 +346,7 @@ func (t *WebRTCTransport) dial(ctx context.Context, scope network.ConnManagement
 	}
 
 	answer := webrtc.SessionDescription{SDP: answerSDPString, Type: webrtc.SDPTypeAnswer}
-	err = pc.SetRemoteDescription(answer)
+	err = w.PeerConnection.SetRemoteDescription(answer)
 	if err != nil {
 		return nil, fmt.Errorf("set remote description: %w", err)
 	}
@@ -370,55 +361,52 @@ func (t *WebRTCTransport) dial(ctx context.Context, scope network.ConnManagement
 		return nil, errors.New("peerconnection opening timed out")
 	}
 
-	detached, err := detachHandshakeDataChannel(ctx, rawHandshakeChannel)
+	// We are connected, run the noise handshake
+	detached, err := detachHandshakeDataChannel(ctx, w.HandshakeDataChannel)
 	if err != nil {
 		return nil, err
 	}
-	// set the local address from the candidate pair
-	cp, err := rawHandshakeChannel.Transport().Transport().ICETransport().GetSelectedCandidatePair()
+	channel := newStream(w.HandshakeDataChannel, detached, func() {})
+
+	remotePubKey, err := t.noiseHandshake(ctx, w.PeerConnection, channel, p, remoteHashFunction, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Setup local and remote address for the connection
+	cp, err := w.HandshakeDataChannel.Transport().Transport().ICETransport().GetSelectedCandidatePair()
 	if cp == nil {
 		return nil, errors.New("ice connection did not have selected candidate pair: nil result")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ice connection did not have selected candidate pair: error: %w", err)
 	}
-
-	channel := newStream(rawHandshakeChannel, detached, func() {})
-	// the local address of the selected candidate pair should be the
-	// local address for the connection, since different datachannels
-	// are multiplexed over the same SCTP connection
+	// the local address of the selected candidate pair should be the local address for the connection
 	localAddr, err := manet.FromNetAddr(&net.UDPAddr{IP: net.ParseIP(cp.Local.Address), Port: int(cp.Local.Port)})
 	if err != nil {
 		return nil, err
 	}
-
 	remoteMultiaddrWithoutCerthash, _ := ma.SplitFunc(remoteMultiaddr, func(c ma.Component) bool { return c.Protocol().Code == ma.P_CERTHASH })
 
-	// we can only know the remote public key after the noise handshake,
-	// but need to set up the callbacks on the peerconnection
 	conn, err := newConnection(
 		network.DirOutbound,
-		pc,
+		w.PeerConnection,
 		t,
 		scope,
 		t.localPeerId,
 		localAddr,
 		p,
-		nil,
+		remotePubKey,
 		remoteMultiaddrWithoutCerthash,
+		w.IncomingDataChannels,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	remotePubKey, err := t.noiseHandshake(ctx, pc, channel, p, remoteHashFunction, false)
-	if err != nil {
-		return nil, err
-	}
 	if t.gater != nil && !t.gater.InterceptSecured(network.DirOutbound, p, conn) {
 		return nil, fmt.Errorf("secured connection gated")
 	}
-	conn.setRemotePublicKey(remotePubKey)
 	return conn, nil
 }
 
@@ -427,15 +415,17 @@ func genUfrag() string {
 		uFragAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 		uFragPrefix   = "libp2p+webrtc+v1/"
 		uFragIdLength = 32
-		uFragIdOffset = len(uFragPrefix)
-		uFragLength   = uFragIdOffset + uFragIdLength
+		uFragLength   = len(uFragPrefix) + uFragIdLength
 	)
 
 	seed := [8]byte{}
 	rand.Read(seed[:])
 	r := mrand.New(mrand.NewSource(binary.BigEndian.Uint64(seed[:])))
 	b := make([]byte, uFragLength)
-	for i := uFragIdOffset; i < uFragLength; i++ {
+	for i := 0; i < len(uFragPrefix); i++ {
+		b[i] = uFragPrefix[i]
+	}
+	for i := len(uFragPrefix); i < uFragLength; i++ {
 		b[i] = uFragAlphabet[r.Intn(len(uFragAlphabet))]
 	}
 	return string(b)
@@ -524,6 +514,24 @@ func (t *WebRTCTransport) noiseHandshake(ctx context.Context, pc *webrtc.PeerCon
 	return secureConn.RemotePublicKey(), nil
 }
 
+func (t *WebRTCTransport) AddCertHashes(addr ma.Multiaddr) (ma.Multiaddr, bool) {
+	listenerFingerprint, err := t.getCertificateFingerprint()
+	if err != nil {
+		return nil, false
+	}
+
+	encodedLocalFingerprint, err := encodeDTLSFingerprint(listenerFingerprint)
+	if err != nil {
+		return nil, false
+	}
+
+	certComp, err := ma.NewComponent(ma.ProtocolWithCode(ma.P_CERTHASH).Name, encodedLocalFingerprint)
+	if err != nil {
+		return nil, false
+	}
+	return addr.Encapsulate(certComp), true
+}
+
 type netConnWrapper struct {
 	*stream
 }
@@ -554,4 +562,92 @@ func detachHandshakeDataChannel(ctx context.Context, dc *webrtc.DataChannel) (da
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// webRTCConnection holds the webrtc.PeerConnection with the handshake channel and the queue for
+// incoming data channels created by the peer.
+//
+// When creating a webrtc.PeerConnection, It is important to set the OnDataChannel handler upfront
+// before connecting with the peer. If the handler's set up after connecting with the peer, there's
+// a small window of time where datachannels created by the peer may not surface to us and cause a
+// memory leak.
+type webRTCConnection struct {
+	PeerConnection       *webrtc.PeerConnection
+	HandshakeDataChannel *webrtc.DataChannel
+	IncomingDataChannels chan dataChannel
+}
+
+func newWebRTCConnection(settings webrtc.SettingEngine, config webrtc.Configuration) (webRTCConnection, error) {
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(settings))
+	pc, err := api.NewPeerConnection(config)
+	if err != nil {
+		return webRTCConnection{}, fmt.Errorf("failed to create peer connection: %w", err)
+	}
+
+	negotiated, id := handshakeChannelNegotiated, handshakeChannelID
+	handshakeDataChannel, err := pc.CreateDataChannel("", &webrtc.DataChannelInit{
+		Negotiated: &negotiated,
+		ID:         &id,
+	})
+	if err != nil {
+		pc.Close()
+		return webRTCConnection{}, fmt.Errorf("failed to create handshake channel: %w", err)
+	}
+
+	incomingDataChannels := make(chan dataChannel, maxAcceptQueueLen)
+	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		dc.OnOpen(func() {
+			rwc, err := dc.Detach()
+			if err != nil {
+				log.Warnf("could not detach datachannel: id: %d", *dc.ID())
+				return
+			}
+			select {
+			case incomingDataChannels <- dataChannel{rwc, dc}:
+			default:
+				log.Warnf("connection busy, rejecting stream")
+				b, _ := proto.Marshal(&pb.Message{Flag: pb.Message_RESET.Enum()})
+				w := msgio.NewWriter(rwc)
+				w.WriteMsg(b)
+				rwc.Close()
+			}
+		})
+	})
+	return webRTCConnection{
+		PeerConnection:       pc,
+		HandshakeDataChannel: handshakeDataChannel,
+		IncomingDataChannels: incomingDataChannels,
+	}, nil
+}
+
+// IsWebRTCDirectMultiaddr returns whether addr is a /webrtc-direct multiaddr with the count of certhashes
+// in addr
+func IsWebRTCDirectMultiaddr(addr ma.Multiaddr) (bool, int) {
+	var foundUDP, foundWebRTC bool
+	certHashCount := 0
+	ma.ForEach(addr, func(c ma.Component) bool {
+		if !foundUDP {
+			if c.Protocol().Code == ma.P_UDP {
+				foundUDP = true
+			}
+			return true
+		}
+		if !foundWebRTC && foundUDP {
+			// protocol after udp must be webrtc-direct
+			if c.Protocol().Code != ma.P_WEBRTC_DIRECT {
+				return false
+			}
+			foundWebRTC = true
+			return true
+		}
+		if foundWebRTC {
+			if c.Protocol().Code == ma.P_CERTHASH {
+				certHashCount++
+			} else {
+				return false
+			}
+		}
+		return true
+	})
+	return foundUDP && foundWebRTC, certHashCount
 }

@@ -210,3 +210,7 @@ func (c *ConnManager) Protocols() []int {
 func (c *ConnManager) Close() error {
 	return nil
 }
+
+func (c *ConnManager) ClientConfig() *quic.Config {
+	return c.clientConfig
+}
