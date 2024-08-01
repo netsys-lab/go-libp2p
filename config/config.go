@@ -35,6 +35,7 @@ import (
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	"github.com/libp2p/go-libp2p/p2p/protocol/holepunch"
 	"github.com/libp2p/go-libp2p/p2p/transport/quicreuse"
+	"github.com/libp2p/go-libp2p/p2p/transport/scionquicreuse"
 	"github.com/prometheus/client_golang/prometheus"
 
 	ma "github.com/multiformats/go-multiaddr"
@@ -86,6 +87,7 @@ type Config struct {
 	PeerKey crypto.PrivKey
 
 	QUICReuse          []fx.Option
+	SCIONQUICReuse     []fx.Option
 	Transports         []fx.Option
 	Muxers             []tptu.StreamMuxer
 	SecurityTransports []Security
@@ -351,6 +353,12 @@ func (cfg *Config) addTransports() ([]fx.Option, error) {
 				return cm, nil
 			}),
 		)
+	}
+
+	if cfg.SCIONQUICReuse != nil {
+		fxopts = append(fxopts, cfg.SCIONQUICReuse...)
+	} else {
+		fxopts = append(fxopts, fx.Provide(scionquicreuse.NewConnManager)) // TODO: close the ConnManager when shutting down the node
 	}
 
 	fxopts = append(fxopts, fx.Invoke(

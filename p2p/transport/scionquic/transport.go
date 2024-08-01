@@ -57,6 +57,7 @@ type transport struct {
 }
 
 var _ tpt.Transport = &transport{}
+var _ tpt.ScionTransport = &transport{}
 
 type holePunchKey struct {
 	addr string
@@ -128,6 +129,11 @@ func (t *transport) dialWithScope(ctx context.Context, raddr ma.Multiaddr, p pee
 		return nil, err
 	}
 
+	path := network.GetViaPath(ctx)
+	if path != nil {
+		fmt.Println(path)
+	}
+
 	tlsConf, keyCh := t.identity.ConfigForPeer(p)
 	pconn, err := t.connManager.DialQUIC(ctx, raddr, tlsConf, t.allowWindowIncrease)
 	if err != nil {
@@ -159,6 +165,7 @@ func (t *transport) dialWithScope(ctx context.Context, raddr ma.Multiaddr, p pee
 		remotePubKey:    remotePubKey,
 		remotePeerID:    p,
 		remoteMultiaddr: raddr,
+		path:            path,
 	}
 	if t.gater != nil && !t.gater.InterceptSecured(network.DirOutbound, p, c) {
 		pconn.CloseWithError(errorCodeConnectionGating, "connection gated")
@@ -396,4 +403,8 @@ func (t *transport) CloseVirtualListener(l *virtualListener) error {
 
 	return nil
 
+}
+
+func (t *transport) QueryPaths(addr ma.Multiaddr) ([]snet.Path, error) {
+	return t.connManager.QueryPaths(addr)
 }

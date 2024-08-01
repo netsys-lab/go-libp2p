@@ -49,6 +49,9 @@ func (ad *activeDial) dial(ctx context.Context) (*Conn, error) {
 	if simConnect, isClient, reason := network.GetSimultaneousConnect(ctx); simConnect {
 		dialCtx = network.WithSimultaneousConnect(dialCtx, isClient, reason)
 	}
+	if path := network.GetViaPath(ctx); path != nil {
+		dialCtx = network.ViaPath(dialCtx, path)
+	}
 
 	resch := make(chan dialResponse, 1)
 	select {

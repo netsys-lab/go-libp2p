@@ -13,6 +13,7 @@ import (
 
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
+	"github.com/scionproto/scion/pkg/snet"
 )
 
 // A CapableConn represents a connection that has offers the basic
@@ -34,6 +35,10 @@ type CapableConn interface {
 
 	// Transport returns the transport to which this connection belongs.
 	Transport() Transport
+}
+
+type ScionConn interface {
+	GetPath() snet.Path
 }
 
 // Transport represents any device by which you can connect to and accept
@@ -77,6 +82,12 @@ type Transport interface {
 	// See the Network interface for an explanation of how this is used.
 	// TODO: Make this a part of the go-multiaddr protocol instead?
 	Proxy() bool
+}
+
+type ScionTransport interface {
+	Transport
+
+	QueryPaths(addr ma.Multiaddr) ([]snet.Path, error)
 }
 
 // Resolver can be optionally implemented by transports that want to resolve or transform the

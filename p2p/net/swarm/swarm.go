@@ -17,6 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/transport"
+	"github.com/scionproto/scion/pkg/snet"
 	"golang.org/x/exp/slices"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -642,11 +643,56 @@ func (s *Swarm) bestConnToPeer(p peer.ID) *Conn {
 	return best
 }
 
+func (s *Swarm) bestPathedConnToPeer(ctx context.Context, p peer.ID) *Conn {
+	s.conns.RLock()
+	defer s.conns.RUnlock()
+
+	prefPath := snet.Fingerprint(network.GetViaPath(ctx))
+
+	var best *Conn
+	for _, c := range s.conns.m[p] {
+		if c.conn.IsClosed() {
+			// We *will* garbage collect this soon anyways.
+			continue
+		}
+		if sconn, ok := c.conn.(transport.ScionConn); ok {
+			p := sconn.GetPath()
+			if p == nil {
+				continue
+			}
+			if snet.Fingerprint(p) != prefPath {
+				continue
+			}
+		} else if mconn, ok := c.conn.(connWithMetrics); ok {
+			if sconn, ok := mconn.CapableConn.(transport.ScionConn); ok {
+				p := sconn.GetPath()
+				if p == nil {
+					continue
+				}
+				if snet.Fingerprint(p) != prefPath {
+					continue
+				}
+			}
+		} else {
+			continue
+		}
+		if best == nil || isBetterConn(c, best) {
+			best = c
+		}
+	}
+	return best
+}
+
 // bestAcceptableConnToPeer returns the best acceptable connection, considering the passed in ctx.
 // If network.WithForceDirectDial is used, it only returns a direct connections, ignoring
 // any limited (relayed) connections to the peer.
 func (s *Swarm) bestAcceptableConnToPeer(ctx context.Context, p peer.ID) *Conn {
-	conn := s.bestConnToPeer(p)
+	var conn *Conn
+	if network.GetViaPath(ctx) != nil {
+		conn = s.bestPathedConnToPeer(ctx, p)
+	} else {
+		conn = s.bestConnToPeer(p)
+	}
 
 	forceDirect, _ := network.GetForceDirectDial(ctx)
 	if forceDirect && !isDirectConn(conn) {
@@ -808,6 +854,13 @@ func (s *Swarm) String() string {
 
 func (s *Swarm) ResourceManager() network.ResourceManager {
 	return s.rcmgr
+}
+
+func (s *Swarm) GetScionTransport() transport.ScionTransport {
+	if scion, ok := s.transports.m[ma.P_QUIC_V1].(transport.ScionTransport); ok {
+		return scion
+	}
+	return nil
 }
 
 // Swarm is a Network.

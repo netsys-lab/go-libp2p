@@ -3,6 +3,8 @@ package network
 import (
 	"context"
 	"time"
+
+	"github.com/scionproto/scion/pkg/snet"
 )
 
 // DialPeerTimeout is the default timeout for a single call to `DialPeer`. When
@@ -15,6 +17,7 @@ type dialPeerTimeoutCtxKey struct{}
 type forceDirectDialCtxKey struct{}
 type allowLimitedConnCtxKey struct{}
 type simConnectCtxKey struct{ isClient bool }
+type viaPathCtxKey struct{}
 
 var noDial = noDialCtxKey{}
 var forceDirectDial = forceDirectDialCtxKey{}
@@ -127,4 +130,15 @@ func GetUseTransient(ctx context.Context) (usetransient bool, reason string) {
 		return true, v.(string)
 	}
 	return false, ""
+}
+
+func ViaPath(ctx context.Context, path snet.Path) context.Context {
+	return context.WithValue(ctx, viaPathCtxKey{}, path)
+}
+
+func GetViaPath(ctx context.Context) snet.Path {
+	if path, ok := ctx.Value(viaPathCtxKey{}).(snet.Path); ok {
+		return path
+	}
+	return nil
 }

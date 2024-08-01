@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/libp2p/go-libp2p/core/network"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go"
 	quiclogging "github.com/quic-go/quic-go/logging"
@@ -163,18 +164,26 @@ func (c *ConnManager) DialQUIC(ctx context.Context, raddr ma.Multiaddr, tlsConf 
 		return nil, errors.New("unknown QUIC version")
 	}
 
+	if path := network.GetViaPath(ctx); path != nil {
+		naddr.Path = path.Dataplane()
+		naddr.NextHop = path.UnderlayNextHop()
+	} else {
+		flags := daemon.PathReqFlags{Refresh: false, Hidden: false}
+		paths, err := c.scionContext.sciond.Paths(context.Background(), naddr.IA, 0, flags)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(paths) > 0 {
+			naddr.Path = paths[0].Dataplane()
+			naddr.NextHop = paths[0].UnderlayNextHop()
+		}
+	}
+
 	tr, err := c.TransportForDial(netw, naddr)
 	if err != nil {
 		return nil, err
 	}
-
-	flags := daemon.PathReqFlags{Refresh: false, Hidden: false}
-	paths, err := c.scionContext.sciond.Paths(context.Background(), naddr.IA, 0, flags)
-	if err != nil {
-		return nil, err
-	}
-	// TODO(Leon): Implement sensible path selection
-	naddr.Path = paths[0].Dataplane()
 
 	conn, err := tr.Dial(ctx, naddr, tlsConf, quicConf)
 	if err != nil {
@@ -209,4 +218,19 @@ func (c *ConnManager) Close() error {
 
 func (c *ConnManager) ClientConfig() *quic.Config {
 	return c.clientConfig
+}
+
+func (c *ConnManager) QueryPaths(addr ma.Multiaddr) ([]snet.Path, error) {
+	naddr, _, err := FromQuicMultiaddr(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	flags := daemon.PathReqFlags{Refresh: false, Hidden: false}
+	paths, err := c.scionContext.sciond.Paths(context.Background(), naddr.IA, 0, flags)
+	if err != nil {
+		return nil, err
+	}
+
+	return paths, nil
 }

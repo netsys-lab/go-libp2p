@@ -7,6 +7,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	tpt "github.com/libp2p/go-libp2p/core/transport"
+	"github.com/scionproto/scion/pkg/snet"
 
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/quic-go/quic-go"
@@ -23,9 +24,11 @@ type conn struct {
 	remotePeerID    peer.ID
 	remotePubKey    ic.PubKey
 	remoteMultiaddr ma.Multiaddr
+
+	path snet.Path
 }
 
-var _ tpt.CapableConn = &conn{}
+var _ tpt.ScionConn = &conn{}
 
 // Close closes the connection.
 // It must be called even if the peer closed the connection in order for
@@ -88,4 +91,8 @@ func (c *conn) ConnState() network.ConnectionState {
 		t = "quic"
 	}
 	return network.ConnectionState{Transport: t}
+}
+
+func (c *conn) GetPath() snet.Path {
+	return c.path
 }
