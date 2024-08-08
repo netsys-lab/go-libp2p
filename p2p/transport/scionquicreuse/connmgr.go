@@ -13,6 +13,7 @@ import (
 	quiclogging "github.com/quic-go/quic-go/logging"
 	"github.com/scionproto/scion/pkg/daemon"
 	"github.com/scionproto/scion/pkg/snet"
+	"github.com/scionproto/scion/pkg/snet/addrutil"
 )
 
 type ConnManager struct {
@@ -194,11 +195,19 @@ func (c *ConnManager) DialQUIC(ctx context.Context, raddr ma.Multiaddr, tlsConf 
 }
 
 func (c *ConnManager) TransportForDial(network string, raddr *snet.UDPAddr) (refCountedQuicTransport, error) {
+	// Workaround not being able to bind to wildcard addresses in snet
+	// TODO(Leon): Is this always IPv4?
+	localIp, err := addrutil.DefaultLocalIP(context.Background(), c.scionContext.sciond)
+	if err != nil {
+		return nil, err
+	}
+
 	var laddr *net.UDPAddr
 	switch network {
 	case "udp4":
-		laddr = &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
+		laddr = &net.UDPAddr{IP: localIp, Port: 0}
 	case "udp6":
+		// TODO(Leon): Probably only works if border router on local host?
 		laddr = &net.UDPAddr{IP: net.IPv6loopback, Port: 0}
 	}
 	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr)
