@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	ic "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -17,18 +19,28 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
+func usage(prog string) {
+	fmt.Printf("Usage: %s <ia> <ip> <port> <nbytes>\n", prog)
+}
+
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Printf("Usage: %s <ia> <port>", os.Args[0])
+	if len(os.Args) != 5 {
+		usage(os.Args[0])
 		return
 	}
-	if err := run(os.Args[1], os.Args[2]); err != nil {
+	nbytes, err := strconv.Atoi(os.Args[4])
+	if err != nil {
+		usage(os.Args[0])
+		return
+	}
+	if err := run(os.Args[1], os.Args[2], os.Args[3], nbytes); err != nil {
 		log.Fatalf(err.Error())
 	}
 }
 
-func run(ia, port string) error {
-	addr, err := ma.NewMultiaddr(fmt.Sprintf("/scion/%s/ip4/127.0.0.1/udp/%s/quic-v1", ia, port))
+func run(ia, ip, port string, nbytes int) error {
+	addr, err := ma.NewMultiaddr(fmt.Sprintf(
+		"/scion/%s/ip4/%s/udp/%s/quic-v1", ia, ip, port))
 	if err != nil {
 		return err
 	}
@@ -54,33 +66,65 @@ func run(ia, port string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Listening. Now run: go run cmd/client/main.go %s %s\n", ln.Multiaddr(), peerID)
+	fmt.Printf("Listening. Now run: go run cmd/client/main.go %s %s\n",
+		ln.Multiaddr(), peerID)
+
+	totalRecvd := 0
+
+	var firstConn = true
+	var start time.Time
+
 	for {
+		// Accept new conn
 		conn, err := ln.Accept()
 		if err != nil {
 			return err
 		}
 		log.Printf("Accepted new connection from %s (%s)\n", conn.RemotePeer(), conn.RemoteMultiaddr())
+
+		// Start timer on first incoming conn
+		if firstConn {
+			firstConn = false
+			start = time.Now()
+		}
+
+		// Receive data in parallel
 		go func() {
-			if err := handleConn(conn); err != nil {
+			recvd, err := handleConn(conn)
+			if err != nil {
 				log.Printf("handling conn failed: %s", err.Error())
+			}
+			totalRecvd += recvd
+
+			// Stop timer once everything received
+			if totalRecvd == nbytes {
+				duration := time.Since(start)
+				log.Printf("Transfer took %f seconds", duration.Seconds())
+
+				firstConn = true
 			}
 		}()
 	}
 }
 
-func handleConn(conn tpt.CapableConn) error {
+func handleConn(conn tpt.CapableConn) (recvd int, err error) {
 	str, err := conn.AcceptStream()
 	if err != nil {
-		return err
+		return 0, err
 	}
+
+	// Receive data
 	data, err := io.ReadAll(str)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	log.Printf("Received: %s\n", data)
-	if _, err := str.Write(data); err != nil {
-		return err
+	log.Printf("Received %d bytes\n", len(data))
+
+	// Send reponse
+	const msg = "Ok!"
+	if _, err := str.Write([]byte(msg)); err != nil {
+		return len(data), err
 	}
-	return str.Close()
+
+	return len(data), str.Close()
 }
