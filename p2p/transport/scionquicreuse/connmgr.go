@@ -229,7 +229,7 @@ func (c *ConnManager) ClientConfig() *quic.Config {
 	return c.clientConfig
 }
 
-func (c *ConnManager) QueryPaths(addr ma.Multiaddr) ([]snet.Path, error) {
+func (c *ConnManager) QueryPaths(ctx context.Context, addr ma.Multiaddr) ([]snet.Path, error) {
 	naddr, _, err := FromQuicMultiaddr(addr)
 	if err != nil {
 		return nil, err

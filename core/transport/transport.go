@@ -87,7 +87,7 @@ type Transport interface {
 type ScionTransport interface {
 	Transport
 
-	QueryPaths(addr ma.Multiaddr) ([]snet.Path, error)
+	QueryPaths(ctx context.Context, addr ma.Multiaddr) ([]snet.Path, error)
 }
 
 // Resolver can be optionally implemented by transports that want to resolve or transform the

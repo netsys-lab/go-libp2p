@@ -82,7 +82,7 @@ func run(raddr, p string, nbytes, npaths int) error {
 	if !ok {
 		return fmt.Errorf("not a ScionTransport")
 	}
-	paths, err := st.QueryPaths(addr)
+	paths, err := st.QueryPaths(context.Background(), addr)
 	if err != nil {
 		return err
 	}

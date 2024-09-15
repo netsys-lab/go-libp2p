@@ -405,6 +405,6 @@ func (t *transport) CloseVirtualListener(l *virtualListener) error {
 
 }
 
-func (t *transport) QueryPaths(addr ma.Multiaddr) ([]snet.Path, error) {
-	return t.connManager.QueryPaths(addr)
+func (t *transport) QueryPaths(ctx context.Context, addr ma.Multiaddr) ([]snet.Path, error) {
+	return t.connManager.QueryPaths(ctx, addr)
 }
