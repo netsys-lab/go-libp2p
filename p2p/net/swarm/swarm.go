@@ -487,7 +487,7 @@ func (s *Swarm) NewStream(ctx context.Context, p peer.ID) (network.Stream, error
 	// a non-closed connection.
 	numDials := 0
 	for {
-		c := s.bestConnToPeer(p)
+		c := s.bestAcceptableConnToPeer(ctx, p)
 		if c == nil {
 			if nodial, _ := network.GetNoDial(ctx); !nodial {
 				numDials++
@@ -527,7 +527,7 @@ func (s *Swarm) NewStream(ctx context.Context, p peer.ID) (network.Stream, error
 // waitForDirectConn waits for a direct connection established through hole punching or connection reversal.
 func (s *Swarm) waitForDirectConn(ctx context.Context, p peer.ID) (*Conn, error) {
 	s.directConnNotifs.Lock()
-	c := s.bestConnToPeer(p)
+	c := s.bestAcceptableConnToPeer(ctx, p)
 	if c == nil {
 		s.directConnNotifs.Unlock()
 		return nil, network.ErrNoConn
@@ -564,7 +564,7 @@ func (s *Swarm) waitForDirectConn(ctx context.Context, p peer.ID) (*Conn, error)
 	case <-ch:
 		// We do not need to remove ourselves from the list here as the notifier
 		// clears the map entry
-		c := s.bestConnToPeer(p)
+		c := s.bestAcceptableConnToPeer(ctx, p)
 		if c == nil {
 			return nil, network.ErrNoConn
 		}
