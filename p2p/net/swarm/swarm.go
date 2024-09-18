@@ -489,6 +489,7 @@ func (s *Swarm) NewStream(ctx context.Context, p peer.ID) (network.Stream, error
 	for {
 		c := s.bestAcceptableConnToPeer(ctx, p)
 		if c == nil {
+			log.Debugf("no acceptable conn to peer [%s]", p)
 			if nodial, _ := network.GetNoDial(ctx); !nodial {
 				numDials++
 				if numDials > DialAttempts {
@@ -506,6 +507,7 @@ func (s *Swarm) NewStream(ctx context.Context, p peer.ID) (network.Stream, error
 
 		limitedAllowed, _ := network.GetAllowLimitedConn(ctx)
 		if !limitedAllowed && c.Stat().Limited {
+			log.Debugf("conn to peer limited [%s]", p)
 			var err error
 			c, err = s.waitForDirectConn(ctx, p)
 			if err != nil {
@@ -520,6 +522,7 @@ func (s *Swarm) NewStream(ctx context.Context, p peer.ID) (network.Stream, error
 			}
 			return nil, err
 		}
+		log.Debugf("opened new stream to peer [%s]", p)
 		return str, nil
 	}
 }
