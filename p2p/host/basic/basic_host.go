@@ -671,7 +671,7 @@ func (h *BasicHost) NewStream(ctx context.Context, p peer.ID, pids ...protocol.I
 		}
 	}
 
-	s, err := h.Network().NewStream(network.WithNoDial(ctx, "already dialed"), p)
+	s, err := h.Network().NewStream(ctx, p)
 	if err != nil {
 		// TODO: It would be nicer to get the actual error from the swarm,
 		// but this will require some more work.
