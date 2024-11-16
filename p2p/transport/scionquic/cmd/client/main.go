@@ -106,7 +106,7 @@ func run(raddr, p string, nbytes, npaths int) error {
 				sliceto = (i + 1) * (nbytes / npaths)
 			} else {
 				// Last path gets remainder
-				sliceto = nbytes - (i * (nbytes / npaths))
+				sliceto = slicefrom + (nbytes - (i * (nbytes / npaths)))
 			}
 
 			err := transfer(addr, peerID, t,
