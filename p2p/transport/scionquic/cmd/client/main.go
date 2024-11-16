@@ -75,7 +75,6 @@ func run(raddr, p string, nbytes, npaths int) error {
 	// Prepare data to send
 	data := make([]byte, nbytes)
 	rand.Read(data)
-	perpath := nbytes / npaths
 
 	// Determine paths
 	st, ok := t.(tpt.ScionTransport)
@@ -99,8 +98,19 @@ func run(raddr, p string, nbytes, npaths int) error {
 		go func(i int) {
 			defer wg.Done()
 
+			// Determine range to transfer
+			slicefrom := i * (nbytes / npaths)
+			var sliceto int
+			if i < npaths-1 {
+				// Split evenly among paths
+				sliceto = (i + 1) * (nbytes / npaths)
+			} else {
+				// Last path gets remainder
+				sliceto = nbytes - (i * (nbytes / npaths))
+			}
+
 			err := transfer(addr, peerID, t,
-				data[i*perpath:(i+1)*perpath], paths[i])
+				data[slicefrom:sliceto], paths[i])
 			if err != nil {
 				log.Fatal(err)
 			}
