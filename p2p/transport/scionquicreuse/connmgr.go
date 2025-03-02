@@ -14,6 +14,7 @@ import (
 	"github.com/scionproto/scion/pkg/daemon"
 	"github.com/scionproto/scion/pkg/snet"
 	"github.com/scionproto/scion/pkg/snet/addrutil"
+	saddr "github.com/scionproto/scion/pkg/addr"
 )
 
 type ConnManager struct {
@@ -57,8 +58,11 @@ func NewConnManager(statelessResetKey quic.StatelessResetKey, tokenKey quic.Toke
 	cm.scionContext = scionContext
 
 	cm.scionNetwork = &snet.SCIONNetwork{
-		Topology:    scionContext.sciond,
-		SCMPHandler: snet.DefaultSCMPHandler{},
+		Dispatcher: &snet.DefaultPacketDispatcherService{
+			Dispatcher:  scionContext.dispatcher,
+			SCMPHandler: &snet.DefaultSCMPHandler{},
+		},
+		LocalIA: scionContext.localIA,
 	}
 
 	quicConf := quicConfig.Clone()
@@ -131,7 +135,7 @@ func (c *ConnManager) onListenerClosed(key string) {
 }
 
 func (c *ConnManager) transportForListen(network string, laddr *snet.UDPAddr) (refCountedQuicTransport, error) {
-	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr.Host)
+	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr.Host, saddr.SvcNone)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +214,7 @@ func (c *ConnManager) TransportForDial(network string, raddr *snet.UDPAddr) (ref
 		// TODO(Leon): Probably only works if border router on local host?
 		laddr = &net.UDPAddr{IP: net.IPv6loopback, Port: 0}
 	}
-	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr)
+	conn, err := c.scionNetwork.Listen(context.Background(), "udp", laddr, saddr.SvcNone)
 	if err != nil {
 		return nil, err
 	}
