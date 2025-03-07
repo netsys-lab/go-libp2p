@@ -50,6 +50,10 @@ func initScionContext() (*scionContext, error) {
 func findSciond(ctx context.Context) (daemon.Connector, error) {
 	address := daemon.DefaultAPIAddress
 
+	if os.Getenv("SCION_DAEMON_ADDRESS") != "" {
+		address = os.Getenv("SCION_DAEMON_ADDRESS")
+	}
+
 	sciond, err := daemon.NewService(address).Connect(ctx)
 	if err != nil {
 		return nil, err
@@ -60,6 +64,10 @@ func findSciond(ctx context.Context) (daemon.Connector, error) {
 
 func findDispatcher() (reliable.Dispatcher, error) {
 	path := reliable.DefaultDispPath
+
+	if os.Getenv("SCION_DISPATCHER_PATH") != "" {
+		path = os.Getenv("SCION_DISPATCHER_PATH")
+	}
 
 	fileinfo, err := os.Stat(path)
 	if err != nil {
