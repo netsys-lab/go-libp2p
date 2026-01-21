@@ -1,8 +1,8 @@
 module github.com/libp2p/go-libp2p
 
-go 1.21.10
+go 1.22.7
 
-toolchain go1.21.12
+toolchain go1.23.7
 
 retract v0.26.1 // Tag was applied incorrectly due to a bug in the release workflow.
 
@@ -56,7 +56,7 @@ require (
 	github.com/quic-go/quic-go v0.44.0
 	github.com/quic-go/webtransport-go v0.8.0
 	github.com/raulk/go-watchdog v1.3.0
-	github.com/scionproto/scion v0.11.1-0.20240711160934-60b4932fc3e4
+	github.com/scionproto/scion v0.12.0
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/fx v1.22.1
 	go.uber.org/goleak v1.3.0
@@ -64,7 +64,7 @@ require (
 	golang.org/x/crypto v0.23.0
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/sync v0.7.0
-	golang.org/x/sys v0.20.0
+	golang.org/x/sys v0.21.0
 	golang.org/x/tools v0.21.0
 	google.golang.org/protobuf v1.34.1
 )
