@@ -2,10 +2,13 @@ package libp2pscionquic
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
@@ -22,6 +25,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	ma "github.com/multiformats/go-multiaddr"
 	mafmt "github.com/multiformats/go-multiaddr-fmt"
+	scionpila "github.com/netsys-lab/scion-pila"
 	"github.com/quic-go/quic-go"
 )
 
@@ -138,6 +142,29 @@ func (t *transport) dialWithScope(ctx context.Context, raddr ma.Multiaddr, p pee
 	pconn, err := t.connManager.DialQUIC(ctx, raddr, tlsConf, t.allowWindowIncrease)
 	if err != nil {
 		return nil, err
+	}
+
+	// Use PILA when available
+	pilaCertsFolder := os.Getenv("SCION_PILA_CERTS_FOLDER")
+	if pilaCertsFolder != "" {
+		log.Warn("SCION_PILA_CERTS_FOLDER found, using it to verify")
+		udpAddr, _, err := scionquicreuse.FromQuicMultiaddr(raddr)
+		if err != nil {
+			return nil, err
+		}
+		remoteVerifyFunc := scionpila.VerifyQUICCertificateChainsHandler(pilaCertsFolder, udpAddr.String())
+
+		// Combine both peer verification funcs to avoid overwriting the default one of libp2p
+		f := tlsConf.VerifyPeerCertificate
+		tlsConf.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			if err := remoteVerifyFunc(rawCerts, verifiedChains); err != nil {
+				return err
+			}
+			if f != nil {
+				return f(rawCerts, verifiedChains)
+			}
+			return nil
+		}
 	}
 
 	// Should be ready by this point, don't block.
@@ -286,12 +313,55 @@ func (t *transport) CanDial(addr ma.Multiaddr) bool {
 // Listen listens for new QUIC connections on the passed multiaddr.
 func (t *transport) Listen(addr ma.Multiaddr) (tpt.Listener, error) {
 	var tlsConf tls.Config
+
+	tlsConf.NextProtos = []string{"libp2p"}
+	udpAddr, version, err := scionquicreuse.FromQuicMultiaddr(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	var scionCerts []tls.Certificate
+
+	// Use PILA when available
+	pilaURL := os.Getenv("SCION_PILA_URL")
+	if pilaURL != "" {
+		log.Warn("SCION_PILA_URL found, using it to fetch certificates")
+		conf := t.identity.GetConfig()
+		if len(conf.Certificates) > 0 {
+			key := conf.Certificates[0].PrivateKey.(*ecdsa.PrivateKey)
+
+			client := scionpila.NewSCIONPilaClient(pilaURL)
+			csr, err := scionpila.NewCertificateSigningRequest(key)
+			if err != nil {
+				return nil, err
+			}
+
+			certificate, err := client.FetchCertificateFromSigningRequest(udpAddr.String(), csr)
+			if err != nil {
+				return nil, err
+			}
+
+			scionCerts, err = scionpila.CreateTLSCertificate(certificate, key)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			log.Warn("No certificates found in tls.Config, skipping PILA")
+		}
+
+	}
+
 	tlsConf.GetConfigForClient = func(_ *tls.ClientHelloInfo) (*tls.Config, error) {
 		// return a tls.Config that verifies the peer's certificate chain.
 		// Note that since we have no way of associating an incoming QUIC connection with
 		// the peer ID calculated here, we don't actually receive the peer's public key
 		// from the key chan.
 		conf, _ := t.identity.ConfigForPeer("")
+
+		if len(scionCerts) > 0 {
+			conf.Certificates = append(conf.Certificates, scionCerts...)
+		}
+
 		return conf, nil
 	}
 	tlsConf.NextProtos = []string{"libp2p"}

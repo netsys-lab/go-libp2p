@@ -39,6 +39,10 @@ type Identity struct {
 	config tls.Config
 }
 
+func (i *Identity) GetConfig() tls.Config {
+	return i.config
+}
+
 // IdentityConfig is used to configure an Identity
 type IdentityConfig struct {
 	CertTemplate *x509.Certificate
