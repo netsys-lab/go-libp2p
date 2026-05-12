@@ -365,7 +365,7 @@ func (t *transport) Listen(addr ma.Multiaddr) (tpt.Listener, error) {
 		return conf, nil
 	}
 	tlsConf.NextProtos = []string{"libp2p"}
-	udpAddr, version, err := scionquicreuse.FromQuicMultiaddr(addr)
+	udpAddr, version, err = scionquicreuse.FromQuicMultiaddr(addr)
 	if err != nil {
 		return nil, err
 	}
